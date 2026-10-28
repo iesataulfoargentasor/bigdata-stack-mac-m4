@@ -1,0 +1,100 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Prácticas Big Data en Mac M4</title><style>body{margin:0;background:#f4f7fb;color:#18283d;font:17px/1.65 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:40px 24px 80px}h1{font-size:2.3rem;line-height:1.2}h2{margin-top:2.5em;border-bottom:2px solid #d7e3f0;padding-bottom:.3em}h3{margin-top:1.8em}a{color:#005ca9}pre{background:#142638;color:#eff8ff;padding:20px;border-radius:10px;overflow:auto;line-height:1.5}code{font-family:ui-monospace,monospace}p code,li code{background:#e5edf5;padding:.1em .3em;border-radius:4px}table{display:block;overflow:auto;border-collapse:collapse;margin:20px 0}td,th{padding:12px;border:1px solid #cbd8e6;text-align:left}th{background:#e5edf5}nav{background:white;border:1px solid #cbd8e6;border-radius:12px;padding:18px 24px}.notice{background:#fff3d4;padding:16px 22px;border-left:5px solid #a46b00;border-radius:5px}header{background:#142638;color:white;padding:20px 24px}header a{color:#afe1ff}footer{margin-top:40px;font-size:.9rem}@media(max-width:600px){main{padding:24px 16px}h1{font-size:1.8rem}}</style></head><body><header>IES Ataúlfo Argenta · SBD / IABD · <a href="index.html">Guía</a> · <a href="practicas.html">Prácticas</a> · <a href="https://github.com/iesataulfoargentasor/bigdata-stack-mac-m4">Repositorio</a></header><main><div class="notice"><strong>Arquitectura mixta:</strong> Hadoop/Hive utilizan emulación Intel; los demás servicios usan ARM64. La prueba real en Mac M4 está pendiente.</div><nav aria-label="Índice"><div class="toc">
+<ul>
+<li><a href="#practicas-del-stack-en-mac">Prácticas del stack en Mac</a><ul>
+<li><a href="#recorrido-1-consultar-el-lago-lake">Recorrido 1: consultar el lago (lake)</a></li>
+<li><a href="#recorrido-2-elt-con-dlt-dbt-y-airflow-elt">Recorrido 2: ELT con dlt, dbt y Airflow (elt)</a><ul>
+<li><a href="#a-mano-desde-el-nodo-lab">A mano, desde el nodo lab</a></li>
+<li><a href="#con-airflow">Con Airflow</a></li>
+<li><a href="#minio-desde-el-lab">MinIO desde el lab</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</nav><h1 id="practicas-del-stack-en-mac">Prácticas del stack en Mac</h1>
+<p>Completa primero la preparación del README. Usa un escenario cada vez y cierra las conexiones a DuckDB antes de lanzar el DAG.</p>
+<h2 id="recorrido-1-consultar-el-lago-lake">Recorrido 1: consultar el lago (<code>lake</code>)</h2>
+<pre><code class="language-bash">docker compose --profile lake up -d --no-build --wait --wait-timeout 900
+docker compose exec trino trino
+</code></pre>
+<pre><code class="language-sql">-- Tabla Parquet en HDFS
+CREATE SCHEMA hive.demo
+  WITH (location = 'hdfs://namenode:9000/user/hive/warehouse/demo.db');
+CREATE TABLE hive.demo.nation WITH (format = 'PARQUET') AS
+  SELECT * FROM tpch.tiny.nation;
+SELECT count(*) FROM hive.demo.nation;             -- 25
+
+-- Tabla Parquet en MinIO
+CREATE SCHEMA hive.minio WITH (location = 's3a://warehouse/minio.db');
+CREATE TABLE hive.minio.region WITH (format = 'PARQUET') AS
+  SELECT * FROM tpch.tiny.region;
+SELECT count(*) FROM hive.minio.region;            -- 5
+
+-- Federación: el lago y MySQL en la misma consulta
+SELECT c.customer_city, count(*) AS pedidos
+FROM mysql.retail_db.orders o
+JOIN mysql.retail_db.customers c ON o.order_customer_id = c.customer_id
+GROUP BY 1 ORDER BY 2 DESC LIMIT 5;
+</code></pre>
+<p>El catálogo es <strong>compartido</strong>: lo creado desde Trino se ve desde HiveServer2.</p>
+<pre><code class="language-bash">docker compose exec hiveserver2 beeline -u &quot;jdbc:hive2://localhost:10000/&quot;
+</code></pre>
+<pre><code class="language-sql">SHOW DATABASES;                       -- default, demo, minio
+SELECT count(*) FROM demo.nation;     -- 25 (lee de HDFS)
+SELECT count(*) FROM minio.region;    -- 5  (lee de MinIO)
+</code></pre>
+<p>YARN sigue disponible para MapReduce clásico. Las prácticas de <code>notebooks/</code> se lanzan desde el
+Jupyter del <code>client</code> (http://localhost:8889), igual que en el clúster mínimo; el <code>client</code> arranca
+con el profile <code>hadoop</code> o <code>all</code>:</p>
+<pre><code class="language-bash">docker compose --profile hadoop up -d
+</code></pre>
+<hr />
+<h2 id="recorrido-2-elt-con-dlt-dbt-y-airflow-elt">Recorrido 2: ELT con dlt, dbt y Airflow (<code>elt</code>)</h2>
+<p>MySQL → dlt → DuckDB (retail_raw) → dbt → vistas y tablas de análisis. Airflow coordina estos pasos.</p>
+<h3 id="a-mano-desde-el-nodo-lab">A mano, desde el nodo <code>lab</code></h3>
+<pre><code class="language-bash">docker compose --profile elt up -d --no-build --wait --wait-timeout 900
+
+# EL: dlt replica mysql-retail -&gt; DuckDB (esquema retail_raw)
+docker compose exec lab python /workspace/dlt/mysql_to_duckdb.py
+
+# T: dbt transforma de staging a marts, y comprueba los tests
+docker compose exec -w /workspace/dbt/retail lab dbt run --profiles-dir /workspace/dbt/retail
+docker compose exec -w /workspace/dbt/retail lab dbt test --profiles-dir /workspace/dbt/retail
+
+# Resultado
+docker compose exec lab duckdb /workspace/data/retail.duckdb \
+  -c &quot;SELECT * FROM main_marts.ventas_por_ciudad LIMIT 5;&quot;
+</code></pre>
+<p>dlt <strong>no transforma</strong>: trae los datos tal cual. dbt <strong>no extrae</strong>: sólo transforma lo cargado.
+Esa separación es lo que distingue ELT de ETL.</p>
+<h3 id="con-airflow">Con Airflow</h3>
+<ol>
+<li>Abre http://localhost:8082 (<code>admin</code> / <code>admin</code>).</li>
+<li>Activa el DAG <strong><code>elt_retail</code></strong> y pulsa <em>Trigger DAG</em>.</li>
+<li>Verás tres tareas: <code>dlt_mysql_a_duckdb</code> → <code>dbt_run</code> → <code>dbt_test</code>.</li>
+</ol>
+<pre><code class="language-bash"># O desde la terminal
+docker compose exec airflow-scheduler airflow dags unpause elt_retail
+docker compose exec airflow-scheduler airflow dags trigger elt_retail
+docker compose exec airflow-scheduler airflow dags list-runs -d elt_retail
+</code></pre>
+<blockquote>
+<p>DuckDB admite <strong>un solo proceso escribiendo</strong>. Si un cuaderno del <code>lab</code> tiene abierto
+<code>retail.duckdb</code>, la tarea de Airflow fallará hasta que cierres la conexión.</p>
+</blockquote>
+<h3 id="minio-desde-el-lab">MinIO desde el <code>lab</code></h3>
+<p>El <code>lab</code> trae las variables <code>AWS_*</code> apuntando a MinIO:</p>
+<pre><code class="language-bash">docker compose exec lab aws s3 ls
+docker compose exec lab aws s3 cp /workspace/dbt/retail/dbt_project.yml s3://raw-data/
+</code></pre>
+<pre><code class="language-python">import duckdb
+con = duckdb.connect()
+con.sql(&quot;&quot;&quot;
+  CREATE SECRET minio (TYPE s3, KEY_ID 'minioadmin', SECRET 'minioadmin',
+                       ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false);
+&quot;&quot;&quot;)
+con.sql(&quot;COPY (SELECT * FROM range(10)) TO 's3://processed/rango.parquet'&quot;)
+con.sql(&quot;SELECT * FROM 's3://processed/rango.parquet'&quot;).show()
+</code></pre>
+<hr /><footer><a href="VALIDACION.txt">Qué se ha verificado</a></footer></main></body></html>

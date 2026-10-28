@@ -1,0 +1,52 @@
+BIG DATA PARA MACBOOK AIR M4, 24 GB — 28/10/2026
+
+ESTADO: adaptación preparada, ejecución en Mac pendiente.
+
+Comprobaciones realizadas:
+- Consulta directa de manifiestos y configuración de imágenes en Docker Hub.
+  Hadoop/Hive docentes: amd64. Imágenes oficiales de MinIO, Trino, MySQL,
+  PostgreSQL, Kafka y Kafka UI: ARM64 disponible.
+- Bases de construcción Python 3.12 y Airflow 2.10.5-python3.12: ARM64 disponible.
+- La publicación oficial DuckDB 1.3.2 contiene duckdb_cli-linux-arm64.zip.
+- Los perfiles hadoop, minio, hive, trino, lab, airflow, lake, elt y all
+  pasan docker compose config. También el Compose independiente de Kafka.
+- Validación de dependencias obligatorias, ausencia de ciclos, existencia de
+  carpetas/archivos montados, plataformas declaradas y puertos de loopback.
+- No hay colisiones de puertos entre el stack principal y Kafka.
+- Los asistentes y scripts shell pasan bash -n.
+
+No comprobado:
+- Construcción de Lab y Airflow en ARM64, incluida la instalación de todas sus
+  dependencias y extensiones. La existencia de la imagen base no valida el build.
+- Arranque, permisos de carpetas compartidas o rendimiento en macOS/M4.
+- Emulación real de Hadoop/Hive con Rosetta en ese equipo.
+- Consultas, DAGs y persistencia en la adaptación mixta.
+
+El equipo disponible es Windows/amd64 y Docker Desktop devuelve Internal Server
+Error al consultar el servidor. No se ha confundido la revisión de configuración
+con una prueba de ejecución. Las pruebas satisfactorias del repositorio de origen
+en Windows no acreditan por sí solas esta versión Mac.
+
+DISEÑO
+ELT y Kafka se preparan con imágenes ARM64. Lab y Airflow se construyen localmente.
+Lake combina ARM64 con las imágenes docentes amd64 de Hadoop y Hive.
+Se recomienda Apple Virtualization framework + Rosetta para esa emulación.
+El dimensionamiento inicial propuesto es 14 GB y 6 CPU de Docker en el Mac de 24 GB,
+con un escenario a la vez. No es una prueba de carga ni una garantía de rendimiento.
+
+ACEPTACIÓN EN EL MAC
+1. Preparar Docker Desktop, compartir la carpeta y ejecutar preparar.sh elt.
+2. Levantar elt; guardar un cuaderno y ejecutar comprobar.sh elt.
+3. Lanzar elt_retail en Airflow y comprobar sus tres tareas en success.
+4. Parar elt. Preparar lake, arrancarlo y ejecutar comprobar.sh lake.
+5. Verificar HDFS, MinIO y consultas Hive/Trino con PRACTICAS.md.
+6. Recrear lake sin -v y repetir la lectura de los datos.
+7. Parar lake. Preparar Kafka, producir y consumir un mensaje.
+8. Recrear Kafka sin -v y comprobar que el mensaje sigue disponible.
+
+ARQUITECTURAS.json conserva el inventario consultado. Para repetir las
+comprobaciones de configuración (si tienes Python en el equipo):
+  python3 scripts/validate-compose.py
+
+Origen: iesataulfoargentasor/bigdata-stack-docker
+Commit base: aa6b050604b0a8246c646473667d858593c4885b

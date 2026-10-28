@@ -1,0 +1,231 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Big Data · MacBook Air M4 · 24 GB</title><style>body{margin:0;background:#f4f7fb;color:#18283d;font:17px/1.65 system-ui,sans-serif}main{max-width:1000px;margin:auto;padding:40px 24px 80px}h1{font-size:2.3rem;line-height:1.2}h2{margin-top:2.5em;border-bottom:2px solid #d7e3f0;padding-bottom:.3em}h3{margin-top:1.8em}a{color:#005ca9}pre{background:#142638;color:#eff8ff;padding:20px;border-radius:10px;overflow:auto;line-height:1.5}code{font-family:ui-monospace,monospace}p code,li code{background:#e5edf5;padding:.1em .3em;border-radius:4px}table{display:block;overflow:auto;border-collapse:collapse;margin:20px 0}td,th{padding:12px;border:1px solid #cbd8e6;text-align:left}th{background:#e5edf5}nav{background:white;border:1px solid #cbd8e6;border-radius:12px;padding:18px 24px}.notice{background:#fff3d4;padding:16px 22px;border-left:5px solid #a46b00;border-radius:5px}header{background:#142638;color:white;padding:20px 24px}header a{color:#afe1ff}footer{margin-top:40px;font-size:.9rem}@media(max-width:600px){main{padding:24px 16px}h1{font-size:1.8rem}}</style></head><body><header>IES Ataúlfo Argenta · SBD / IABD · <a href="index.html">Guía</a> · <a href="practicas.html">Prácticas</a> · <a href="https://github.com/iesataulfoargentasor/bigdata-stack-mac-m4">Repositorio</a></header><main><div class="notice"><strong>Arquitectura mixta:</strong> Hadoop/Hive utilizan emulación Intel; los demás servicios usan ARM64. La prueba real en Mac M4 está pendiente.</div><nav aria-label="Índice"><div class="toc">
+<ul>
+<li><a href="#big-data-en-macbook-air-m4-24-gb">Big Data en MacBook Air M4 · 24 GB</a><ul>
+<li><a href="#arquitectura">Arquitectura</a></li>
+<li><a href="#1-preparar-docker-desktop">1. Preparar Docker Desktop</a></li>
+<li><a href="#2-clonar-desde-terminal">2. Clonar desde Terminal</a></li>
+<li><a href="#3-elegir-un-escenario">3. Elegir un escenario</a><ul>
+<li><a href="#elt">ELT</a></li>
+<li><a href="#lago">Lago</a></li>
+<li><a href="#kafka">Kafka</a></li>
+</ul>
+</li>
+<li><a href="#4-interfaces-y-almacenamiento">4. Interfaces y almacenamiento</a></li>
+<li><a href="#5-comprobar-el-funcionamiento">5. Comprobar el funcionamiento</a></li>
+<li><a href="#6-parar-reanudar-y-conservar-datos">6. Parar, reanudar y conservar datos</a></li>
+<li><a href="#7-diagnostico">7. Diagnóstico</a></li>
+<li><a href="#8-actualizar">8. Actualizar</a></li>
+<li><a href="#procedencia-y-alcance">Procedencia y alcance</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</nav><h1 id="big-data-en-macbook-air-m4-24-gb">Big Data en MacBook Air M4 · 24 GB</h1>
+<p>Adaptación del <a href="https://iesataulfoargentasor.github.io/bigdata-stack-docker/#mapa">stack docente Big Data del IES Ataúlfo Argenta</a>: HDFS, YARN, MinIO, Hive, Trino, MySQL, JupyterLab, DuckDB, dlt, dbt, Airflow y un clúster Kafka independiente.</p>
+<p><strong><a href="https://iesataulfoargentasor.github.io/bigdata-stack-mac-m4/">Guía web</a></strong> · <strong><a href="https://github.com/iesataulfoargentasor/bigdata-stack-mac-m4/archive/refs/heads/main.zip">Descargar ZIP</a></strong> · <strong><a href="practicas.html">Prácticas</a></strong> · <strong><a href="VALIDACION.txt">Validación</a></strong></p>
+<p><strong>Esta versión es mixta, no completamente ARM64.</strong> Las imágenes docentes de Hadoop y Hive sólo están disponibles para Intel y se ejecutan con emulación. El resto utiliza ARM64. La adaptación no se ha ejecutado todavía en un Mac M4: las comprobaciones de configuración no sustituyen la prueba en tu equipo.</p>
+<h2 id="arquitectura">Arquitectura</h2>
+<p><a id="mapa"></a></p>
+<pre><code class="language-text">MacBook Air M4 (24 GB) → Docker Desktop
+│
+├── lake: consultar el lago
+│   ├── HDFS + YARN                 [amd64 emulado]
+│   ├── Hive Metastore + HiveServer2 [amd64 emulado]
+│   ├── MinIO                      [ARM64]
+│   ├── MySQL catálogo + retail     [ARM64]
+│   └── Trino                      [ARM64]
+│
+├── elt: extraer, cargar y transformar
+│   ├── MySQL → dlt → DuckDB → dbt  [ARM64]
+│   ├── JupyterLab + MinIO          [ARM64]
+│   └── Airflow + PostgreSQL        [ARM64]
+│
+└── Kafka: 3 brokers + consola      [ARM64, Compose separado]
+</code></pre>
+<p>Lab y Airflow se construyen en tu Mac desde bases oficiales ARM64. No se descargan sus antiguas imágenes docentes Intel. Las imágenes de Hadoop/Hive se conservan con <code>platform: linux/amd64</code> explícito; su emulación puede hacer que <code>lake</code> arranque más lentamente.</p>
+<p>Los servicios tienen nombres de proyecto propios y no fijan nombres globales de contenedor. Las interfaces se publican sólo en <code>127.0.0.1</code>. Aunque no colisionen los nombres, debes parar otros stacks que ocupen los mismos puertos, incluido el de Spark.</p>
+<h2 id="1-preparar-docker-desktop">1. Preparar Docker Desktop</h2>
+<ol>
+<li>Instala <a href="https://docs.docker.com/desktop/setup/install/mac-install/">Docker Desktop para Mac con Apple Silicon</a> y ábrelo.</li>
+<li>Como punto de partida para tus 24 GB, asigna <strong>14 GB de memoria y 6 CPU</strong> a Docker. Reserva <strong>al menos 25 GB de disco libre</strong> para las imágenes, construcciones y datos pequeños. Son orientaciones de esta práctica, no una garantía para cualquier volumen de datos.</li>
+<li>Para los escenarios con Hadoop/Hive, selecciona <strong>Apple Virtualization framework</strong> en la configuración del motor y activa <strong>Use Rosetta for x86_64/amd64 emulation on Apple Silicon</strong>. Si Docker pide instalar Rosetta, sigue su asistente. Los nombres de los ajustes pueden variar con la versión.</li>
+<li>Utiliza VirtioFS para las carpetas compartidas cuando la opción esté disponible. Aplica los cambios y reinicia Docker si lo solicita.</li>
+<li>Guarda el proyecto en una carpeta local, fuera de iCloud Drive. No ejecutes todos los escenarios a la vez. Empieza por <code>elt</code>, que no necesita emular Intel.</li>
+</ol>
+<p>Docker documenta que Rosetta está disponible con Apple Virtualization framework y que Docker VMM actualmente no la admite. Puedes consultar los detalles en <a href="https://docs.docker.com/desktop/settings-and-maintenance/settings/">configuración</a> y <a href="https://docs.docker.com/desktop/features/vmm/">motores de virtualización</a>. El escenario <code>elt</code> y Kafka no requieren Rosetta.</p>
+<p>No necesitas instalar Python, Java, Hadoop ni bases de datos en macOS. Para este stack se recomienda una versión actual de Docker Desktop con Compose 2.20 o posterior.</p>
+<h2 id="2-clonar-desde-terminal">2. Clonar desde Terminal</h2>
+<pre><code class="language-bash">mkdir -p ~/Proyectos
+cd ~/Proyectos
+git clone https://github.com/iesataulfoargentasor/bigdata-stack-mac-m4.git
+cd bigdata-stack-mac-m4
+docker version
+docker compose version
+</code></pre>
+<p>Si macOS pide instalar las herramientas de línea de comandos al ejecutar Git, completa la instalación y repite. Alternativamente descarga el ZIP, descomprímelo y entra en su carpeta real, que puede llamarse <code>bigdata-stack-mac-m4-main</code>.</p>
+<p><code>docker version</code> debe mostrar Client y Server. Si devuelve un error interno, resuelve el funcionamiento de Docker antes de continuar. Ejecuta todos los comandos siguientes desde la carpeta que contiene <code>compose.yaml</code>.</p>
+<h2 id="3-elegir-un-escenario">3. Elegir un escenario</h2>
+<table>
+<thead>
+<tr>
+<th>Escenario</th>
+<th>Qué aprenderás</th>
+<th>Preparación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>elt</code></td>
+<td>MySQL, Jupyter, DuckDB, dlt, dbt y Airflow</td>
+<td>Nativo ARM64; recomendado para comenzar</td>
+</tr>
+<tr>
+<td><code>lake</code></td>
+<td>HDFS, YARN, Hive, MinIO y Trino</td>
+<td>ARM64 + emulación Intel</td>
+</tr>
+<tr>
+<td>Kafka</td>
+<td>Mensajería, particiones y réplicas</td>
+<td>Nativo ARM64; Compose separado</td>
+</tr>
+</tbody>
+</table>
+<p>Hay perfiles auxiliares <code>hadoop</code>, <code>minio</code>, <code>hive</code>, <code>trino</code>, <code>lab</code> y <code>airflow</code>. Hive y Trino incluyen sus dependencias. <code>all</code> se conserva para diagnóstico, pero no es la opción recomendada para el MacBook Air: iniciar todo a la vez puede agotar la memoria.</p>
+<h3 id="elt">ELT</h3>
+<pre><code class="language-bash">bash preparar.sh elt
+docker compose --profile elt up -d --no-build --wait --wait-timeout 900
+docker compose --profile elt ps -a
+</code></pre>
+<p>El asistente crea <code>.env</code> con tu UID y construye Lab y Airflow para ARM64. Después descarga las imágenes oficiales necesarias. Si <code>.env</code> ya existe, lo conserva: comprueba que <code>AIRFLOW_UID</code> coincida con <code>id -u</code>. No uses <code>sudo</code> para preparar la carpeta.</p>
+<p>Abre Jupyter en http://localhost:8888 y Airflow en http://localhost:8082 (admin/admin). MinIO está en http://localhost:9001 (minioadmin/minioadmin).</p>
+<h3 id="lago">Lago</h3>
+<p>Detén primero el escenario anterior:</p>
+<pre><code class="language-bash">docker compose --profile &quot;*&quot; stop
+bash preparar.sh lake
+docker compose --profile lake up -d --no-build --wait --wait-timeout 900
+docker compose --profile lake ps -a
+</code></pre>
+<p>Se construye el pequeño cargador de datos usando la misma imagen ARM64 del laboratorio y se descargan las imágenes del lago. No reconstruyas los Dockerfiles de Hadoop/Hive para ARM64: esta versión está diseñada para utilizar sus imágenes Intel con emulación explícita.</p>
+<h3 id="kafka">Kafka</h3>
+<pre><code class="language-bash">docker compose --profile &quot;*&quot; stop
+bash preparar.sh kafka
+docker compose -f docker-compose.kafka.yml up -d --wait --wait-timeout 600
+</code></pre>
+<p>Abre http://localhost:8083. Cada broker tiene su volumen persistente. Los clientes ejecutados en el Mac usan localhost:29092, localhost:39092 y localhost:49092. Los clientes dentro de Kafka utilizan kafka-1:19092, kafka-2:19092 y kafka-3:19092.</p>
+<h2 id="4-interfaces-y-almacenamiento">4. Interfaces y almacenamiento</h2>
+<table>
+<thead>
+<tr>
+<th>Servicio</th>
+<th>Puerto local</th>
+<th>Acceso</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NameNode</td>
+<td>9870</td>
+<td>http://localhost:9870</td>
+</tr>
+<tr>
+<td>ResourceManager</td>
+<td>8088</td>
+<td>http://localhost:8088</td>
+</tr>
+<tr>
+<td>DataNode / NodeManager</td>
+<td>9864 / 8042</td>
+<td>Interfaces del nodo</td>
+</tr>
+<tr>
+<td>Trino</td>
+<td>8080</td>
+<td>http://localhost:8080</td>
+</tr>
+<tr>
+<td>HiveServer2 web / JDBC</td>
+<td>10002 / 10000</td>
+<td>Consola / JDBC</td>
+</tr>
+<tr>
+<td>MinIO consola / API</td>
+<td>9001 / 9000</td>
+<td>minioadmin / minioadmin</td>
+</tr>
+<tr>
+<td>JupyterLab</td>
+<td>8888</td>
+<td>Sin token, sólo acceso local</td>
+</tr>
+<tr>
+<td>Cliente Hadoop</td>
+<td>8889</td>
+<td>Perfil hadoop, sin token</td>
+</tr>
+<tr>
+<td>Airflow</td>
+<td>8082</td>
+<td>admin / admin</td>
+</tr>
+<tr>
+<td>MySQL catálogo / retail</td>
+<td>3306 / 3307</td>
+<td>hive/hive · retail/retail</td>
+</tr>
+<tr>
+<td>Kafka UI</td>
+<td>8083</td>
+<td>http://localhost:8083</td>
+</tr>
+</tbody>
+</table>
+<p><code>workspace/</code> guarda los scripts, los resultados DuckDB y los archivos de trabajo. <code>notebooks/</code> se comparte con el cliente Hadoop. Los datos de HDFS, MinIO, MySQL, PostgreSQL y Kafka se guardan en volúmenes Docker.</p>
+<p>Es un entorno docente local con credenciales sencillas. No está preparado para exponer sus servicios a Internet. No necesitas configurar Tailscale para trabajar en tu propio Mac.</p>
+<h2 id="5-comprobar-el-funcionamiento">5. Comprobar el funcionamiento</h2>
+<p>Con <code>elt</code> arrancado y sin otra aplicación utilizando el fichero DuckDB:</p>
+<pre><code class="language-bash">bash comprobar.sh elt
+</code></pre>
+<p>Debe terminar con seis modelos de dbt creados y once pruebas correctas. En Jupyter crea y guarda un cuaderno. Después cierra cualquier conexión a DuckDB, activa <code>elt_retail</code> en Airflow y pulsa Trigger DAG. Las tres tareas deben quedar en verde. No ejecutes el flujo manual al mismo tiempo que el DAG.</p>
+<p>Con <code>lake</code> arrancado:</p>
+<pre><code class="language-bash">bash comprobar.sh lake
+</code></pre>
+<p>La prueba crea tablas de ejemplo independientes y comprueba 25 filas en HDFS, 5 en MinIO y 20000 pedidos en MySQL. Se puede repetir: conserva las tablas ya creadas. Si has modificado los datos retail, el resultado esperado puede variar.</p>
+<p>Para Kafka:</p>
+<pre><code class="language-bash">docker compose -f docker-compose.kafka.yml exec kafka-1 /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:19092 --create --if-not-exists --topic prueba-m4 --partitions 1 --replication-factor 3
+printf 'hola desde el M4\n' | docker compose -f docker-compose.kafka.yml exec -T kafka-1 /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server kafka-1:19092 --topic prueba-m4
+docker compose -f docker-compose.kafka.yml exec -T kafka-2 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka-2:19092 --topic prueba-m4 --from-beginning --max-messages 1 --timeout-ms 30000
+</code></pre>
+<p>Continúa con los ejercicios de <a href="practicas.html">PRACTICAS.md</a>: consultas compartidas entre Hive y Trino, análisis de ventas y acceso a MinIO desde DuckDB.</p>
+<h2 id="6-parar-reanudar-y-conservar-datos">6. Parar, reanudar y conservar datos</h2>
+<pre><code class="language-bash"># Parar el stack principal
+docker compose --profile &quot;*&quot; stop
+# Parar Kafka, si lo habías iniciado
+docker compose -f docker-compose.kafka.yml stop
+</code></pre>
+<p>Para reanudar utiliza el mismo <code>up</code> del escenario elegido. Si necesitas recrear contenedores, puedes usar <code>down</code> y después <code>up</code>: los volúmenes y las carpetas compartidas se conservan. <strong>No uses <code>down -v</code>: borra los volúmenes.</strong></p>
+<p>En HDFS, el NameNode permite incorporarse al DataNode antes de que <code>hdfs-init</code> espere la salida del modo seguro y prepare las carpetas. No fuerces la salida del modo seguro como paso rutinario.</p>
+<p>Después de preparar y comprobar un escenario con Internet, puedes repetir su <code>up</code> añadiendo <code>--no-build --pull never</code> sin conexión. Los ejemplos que descarguen datos o paquetes externos requerirán preparación adicional.</p>
+<h2 id="7-diagnostico">7. Diagnóstico</h2>
+<pre><code class="language-bash">docker compose --profile &quot;*&quot; ps -a
+docker compose logs --tail 100 NOMBRE_DEL_SERVICIO
+</code></pre>
+<ul>
+<li><code>Exited (0)</code> es normal en los inicializadores. <code>unhealthy</code> o una salida distinta de 0 requiere revisar los logs.</li>
+<li>Si Hadoop/Hive fallan o son muy lentos, revisa Rosetta, el motor de virtualización, la memoria y los logs. Una plataforma declarada no garantiza que la emulación funcione en cualquier versión de macOS.</li>
+<li>Si aparece un error de permisos, revisa <code>AIRFLOW_UID</code> y que Docker pueda compartir la carpeta. Una variable exportada en Terminal prevalece sobre <code>.env</code>.</li>
+<li>Si Docker intenta descargar <code>bigdata-m4-lab:1.0</code> o no encuentra la imagen, ejecuta de nuevo <code>bash preparar.sh</code> con el escenario correspondiente.</li>
+<li>Si el puerto está ocupado, para el otro stack (por ejemplo, Spark) o modifica sólo el puerto publicado en el Compose.</li>
+<li>Si el equipo pierde fluidez, detén los escenarios que no uses. Los contenedores Linux siguen consumiendo recursos aunque cierres la pestaña del navegador.</li>
+</ul>
+<h2 id="8-actualizar">8. Actualizar</h2>
+<pre><code class="language-bash">docker compose --profile &quot;*&quot; stop
+docker compose -f docker-compose.kafka.yml stop
+git pull --ff-only
+bash preparar.sh elt
+docker compose --profile elt up -d --no-build --wait --wait-timeout 900
+</code></pre>
+<p>Cambia <code>elt</code> por el escenario que uses. Una clonación nueva ya contiene la última versión. No borres tu <code>.env</code> ni tus cuadernos para actualizar.</p>
+<h2 id="procedencia-y-alcance">Procedencia y alcance</h2>
+<p>Adaptación del repositorio original, commit <code>aa6b050604b0a8246c646473667d858593c4885b</code>. Se mantienen las correcciones de arranque, la carga retail, la persistencia Kafka y el DAG con un máximo de una ejecución activa. Se cambian las plataformas, la construcción de Lab/Airflow, los nombres de proyecto y la publicación local de puertos.</p>
+<p>El repositorio original se probó en Windows/amd64. Eso no demuestra que esta adaptación mixta funcione en el M4. Lee <a href="VALIDACION.txt">VALIDACION.txt</a> para ver exactamente qué se ha comprobado. El inventario de arquitecturas está en <code>ARQUITECTURAS.json</code>.</p><footer><a href="VALIDACION.txt">Qué se ha verificado</a></footer></main></body></html>
